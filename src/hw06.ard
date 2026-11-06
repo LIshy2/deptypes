@@ -1,43 +1,151 @@
+\import Data.Bool
+\import Data.Maybe
 \import Logic
+\import Paths
+\import hw01 (gcd)
 \import lect06
 
 -- 1. Определите функцию swap несколькими способами
 
 -- При помощи \cowith и доступа к полям
-\func swap {A B : \Type} (p : Pair A B) : Pair B A => {?}
+
+\func swap {A B : \Type} (p : Pair A B) : Pair B A \cowith
+  | fst_ => p.snd_
+  | snd_ => p.fst_
 
 -- При помощи \new и паттерн матчинга
-\func swap' {A B : \Type} (p : Pair A B) : Pair B A => {?}
+
+\func swap' {A B : \Type} (p : Pair A B) : Pair B A \elim p
+  | (a,b) => \new Pair { | fst_ => b | snd_  => a }
 
 -- При помощи \new и доступа к полям
-\func swap'' {A B : \Type} (p : Pair A B) : Pair B A => {?}
+
+\func swap'' {A B : \Type} (p : Pair A B) : Pair B A => \new Pair { | fst_ => p.snd_ | snd_  => p.fst_ }
 
 -- 2. Докажите, что swap (swap p) = p
 
-\func swap-involutive {A B : \Type} (p : Pair A B) : swap (swap p) = p => {?}
+\func swap-involutive {A B : \Type} (p : Pair A B) : swap (swap p) = p =>
+  idp
 
 -- 3. Докажите, что тип PosNat 0 пустой, а тип PosNat 1 нет
 
-\func zero-isNotPos (p : PosNat 0) : Empty => {?}
+\lemma zero-isNotPos (p : PosNat 0) : Empty => p.p
 
-\func one-isPos : PosNat 1 => {?}
+\func one-isPos : PosNat 1 => \new PosNat {
+  | p => ()
+}
 
 -- 4. Определите \record, состоящий из пар взаимно простых натуральных чисел
 --    Определите тип, состоящий из натуральных чисел, взаимно простых с 60
 
+\record Aboba (n m : Nat) (p : gcd n m = 1)
+
+\func aboba60 : Nat -> \Type => Aboba 60
+
 -- 5. Закончите определение класса монад
 --    Этот класс должен содержать все монадные законы и реализовывать все поля из класса функторов
 
-\class Monad \extends Functor
-  | return {A : \Type} : A -> F A
-  | \infixl 2 >>= {A B : \Type} : F A -> (A -> F B) -> F B
+\class Monad.{l} \extends Functor.{l}
+  | return {A : \Type l} : A -> F A
+  | \infixl 2 >>= {A B : \Type l} : F A -> (A -> F B) -> F B
+  | lunit {A B : \Type l}
+          (a : A) (f : A -> F B)
+  : (return a >>= f) = f a
+  | runit {A : \Type l}
+          (m : F A)
+  : (m >>= return) = m
+  | assoc {A B C : \Type l}
+          (m : F A) (f : A -> F B) (g : B -> F C)
+  : ((m >>= f) >>= g) = (m >>= (\lam x => f x >>= g))
+  | fmap f => \lam m => m >>= (\lam a => return (f a))
+  | fmap-id m => runit m
+  | fmap-comp f g m =>
+    inv (path (\lam i =>
+        m >>= (\lam a =>
+            lunit (g a)
+                (\lam b => return (f b)) @ i)))
+      *> inv (assoc m
+        (\lam a => return (g a))
+        (\lam b => return (f b)))
+
+
 
 -- 6. Определите \instance Monad для Maybe
+
+\func maybeBind {A B : \Type}
+                (m : Maybe A) (f : A -> Maybe B) : Maybe B \elim m
+  | nothing => nothing
+  | just a => f a
+
+\func maybeRight {A : \Type}
+                 (m : Maybe A) : maybeBind m just = m
+\elim m
+  | nothing => idp
+  | just a => idp
+
+\func maybeAssoc {A B C : \Type}
+                 (m : Maybe A)
+                 (f : A -> Maybe B)
+                 (g : B -> Maybe C) : maybeBind (maybeBind m f) g =
+maybeBind m (\lam a => maybeBind (f a) g)
+\elim m
+  | nothing => idp
+  | just a => idp
+
+\instance MaybeMonad.{l} : Monad (\lam A => Maybe A)
+  | return => just
+  | >>= => maybeBind
+  | lunit _ _ => idp
+  | runit m => maybeRight m
+  | assoc m f g => maybeAssoc m f g
 
 -- 7. Определите \instance Monad для State и State'
 
 \record State (S A : \Type)
   | state : S -> \Sigma S A
 
+\instance StateMonad.{l}
+  (S : \Type l) : Monad.{l} (\lam A => State S A)
+
+  | return a =>
+    \new State {
+      | state s => (s, a)
+    }
+
+  | >>= m f =>
+    \new State {
+      | state s =>
+        State.state
+            {f (State.state {m} s).2}
+            (State.state {m} s).1
+    }
+
+  | lunit _ _ => idp
+  | runit _ => idp
+  | assoc _ _ _ => idp
+
 \data State' (S A : \Type)
   | state' (S -> \Sigma S A)
+
+\func runState'.{l} {S A : \Type l} (m : State' S A) : S -> \Sigma S A
+\elim m
+  | state' f => f
+
+\func state'-eta.{l} {S A : \Type l} (m : State' S A) : state' (runState' m) = m \elim m
+  | state' f => idp
+
+\instance State'Monad.{l}
+  (S : \Type l) : Monad.{l} (\lam A => State' S A )
+
+  | return a =>
+    state' (\lam s => (s, a))
+
+  | >>= m f =>
+    state' (\lam s =>
+        runState'
+            (f (runState' m s).2)
+            (runState' m s).1)
+
+  | lunit a f => state'-eta (f a)
+  | runit m => state'-eta m
+  | assoc _ _ _ => idp

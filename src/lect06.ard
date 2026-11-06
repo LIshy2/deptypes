@@ -382,10 +382,10 @@
 -- 9. Functor
 
 -- Еще один пример: класс функторов
-\class Functor (F : \Type -> \Type)
-  | fmap {A B : \Type} : (A -> B) -> (F A -> F B)
-  | fmap-id {A : \Type} (x : F A) : fmap (\lam a => a) x = x
-  | fmap-comp {A B C : \Type} (f : B -> C) (g : A -> B) (x : F A) : fmap (\lam a => f (g a)) x = fmap f (fmap g x)
+\class Functor.{l} (F : \Type l -> \Type l)
+  | fmap {A B : \Type l} : (A -> B) -> (F A -> F B)
+  | fmap-id {A : \Type l} (x : F A) : fmap (\lam a => a) x = x
+  | fmap-comp {A B C : \Type l} (f : B -> C) (g : A -> B) (x : F A) : fmap (\lam a => f (g a)) x = fmap f (fmap g x)
 
 \instance ListFunctor : Functor List
   | fmap {A B : \Type} (f : A -> B) (xs : List A) : List B \elim xs {
