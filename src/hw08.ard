@@ -1,37 +1,181 @@
+\import Arith.Nat
 \import Data.Bool
 \import Data.List \hiding (headDef)
+\import Data.Or
+\import Logic \hiding (<->)
 \import hw07
+\import lect05 (funExt)
 \import lect08
 \import Order.LinearOrder
-\open LinearOrder
+\import Paths
+\open LinearOrder \hiding (<=)
 
 -- 1. Реализуйте функцию filter и докажите ее корректность, то есть, что выполнены следующие условия:
 --    * filter p xs является подсписком xs
 --    * Все элементы filter p xs удовлетворяют предикату p
 --    * Любой подсписок xs с тем же свойством является подсписком filter p xs
 
+\data AllTrue {A : \Type} (p : A -> Bool) (xs : List A) \elim xs
+  | nil => all-nil
+  | x :: xs => all-cons (p x = true) (AllTrue p xs)
+
+\func filter-all {A : \Type} (p : A -> Bool) (xs : List A) : AllTrue p (filter p xs) \elim xs
+  | nil => all-nil
+  | x :: xs => helper p x (filter p xs) (p x) idp (filter-all p xs)
+  \where {
+    \func helper {A : \Type} (p : A -> Bool) (x : A) (xs : List A)
+                 (b : Bool) (e : p x = b) (h : AllTrue p xs) : AllTrue p (filter-step b x xs) \elim b
+      | false => h
+      | true => all-cons e h
+  }
+
+\func filter-sublist-commute {A : \Type} (p : A -> Bool) {xs ys : List A}
+                             (s : Sublist ys xs) (a : AllTrue p ys) : Sublist ys (filter p xs)
+\elim xs, ys, s, a
+  | xs, nil, emptySublist, all-nil => emptySublist
+  | x :: xs, y :: ys, HereHere e s, all-cons py a =>
+    transport (\lam b => Sublist (y :: ys) (filter-step b x (filter p xs)))
+        (inv (inv (pmap p e) *> py)) (HereHere e (filter-sublist-commute p s a))
+  | x :: xs, ys, HereThere s, a =>
+    \case p x \as b \return Sublist ys (filter-step b x (filter p xs)) \with {
+      | false => filter-sublist-commute p s a
+      | true => HereThere (filter-sublist-commute p s a)
+    }
+
 -- 2. Докажите, что Perm l1 l2 тогда и только тогда, когда Insertion.sort l1 = Insertion.sort l2
+
+\func perm-sym {A : \Type} {xs ys : List A} (p : Perm xs ys) : Perm ys xs \elim xs, ys, p
+  | nil, nil, perm-nil => perm-nil
+  | x :: xs, y :: ys, perm-cons e p => perm-cons (inv e) (perm-sym p)
+  | x :: x' :: xs, y :: y' :: ys, perm-swap e e' q =>
+    perm-swap (inv e') (inv e) (inv q)
+  | xs, ys, perm-trans p q => perm-trans (perm-sym q) (perm-sym p)
+
+\func equal-perm {A : \Type} {xs ys : List A} (e : xs = ys) : Perm xs ys \elim e
+  | idp => Perm.refl
+
+\func perm-sort-equal {A : Dec} {xs ys : List A} (p : Perm xs ys) :
+  Insertion.sort xs = Insertion.sort ys \elim xs, ys, p
+  | nil, nil, perm-nil => idp
+  | x :: xs, y :: ys, perm-cons e p =>
+    \lam i => Insertion.sort.insert (e i) (perm-sort-equal p i)
+  | x :: x' :: xs, y :: y' :: ys, perm-swap e e' q =>
+    (\lam i => Insertion.sort.insert (e i)
+        (Insertion.sort.insert (e' i) (Insertion.sort (q i))))
+      *> Insertion.sort.insert-comm y' y (Insertion.sort-sorted ys)
+  | xs, ys, perm-trans p q =>
+    perm-sort-equal p *> perm-sort-equal q
+
+\func sort-equal-perm {A : Dec} {xs ys : List A}
+                      (e : Insertion.sort xs = Insertion.sort ys) : Perm xs ys =>
+  perm-trans
+      (Insertion.sort-perm xs)
+      (perm-trans (equal-perm e) (perm-sym (Insertion.sort-perm ys)))
+
+\func perm-iff-sort-equal {A : Dec} (xs ys : List A) : Perm xs ys <-> (Insertion.sort xs = Insertion.sort ys)
+  => (\lam p => perm-sort-equal p, \lam e => sort-equal-perm e)
 
 -- 3. Докажите, что спецификация "результат является перестановкой входа и отсортирован" является полной для функции sort
 
-\func completeness {A : Dec} (sort : List A -> List A) (l : List A) (p : Perm l (sort l)) (s : Sorted (sort l))
-  : sort l = Insertion.sort l => {?}
+\func insert-sorted-head {A : Dec} (a : A) {xs : List A}
+                         (s : Sorted (a :: xs)) : Insertion.sort.insert a xs = a :: xs
+\elim xs, s
+  | nil, sorted-cons _ _ => idp
+  | x :: xs, sorted-cons a<=x _ =>
+    pmap (\lam (d : Or (x A.< a) (a A.<= x)) => \case d \with {
+      | inl _ => x :: Insertion.sort.insert a xs
+      | inr _ => a :: x :: xs
+    }) (dec<=_reduce a<=x)
+
+\func sort-sorted-id {A : Dec} {xs : List A} (s : Sorted xs) : Insertion.sort xs = xs \elim xs, s
+  | nil, sorted-nil => idp
+  | x :: xs, sorted-cons p q =>
+    pmap (Insertion.sort.insert x) (sort-sorted-id q)
+      *> insert-sorted-head x (sorted-cons p q)
+
+\func completeness {A : Dec} (sort : List A -> List A)
+                   (p : \Pi (l : List A) -> Perm l (sort l)) (s : \Pi (l : List A) -> Sorted (sort l)) :
+  sort = Insertion.sort => funExt (\lam (l : List A) => inv (sort-sorted-id (s l)) *> inv (perm-sort-equal (p l)))
 
 -- 4. Определите факториал через хвостовую рекурсию
 --    Докажите, что он равен обычному определению факториала
 
+\func factorial (n : Nat) : Nat \elim n
+  | 0 => 1
+  | suc n => suc n Nat.* factorial n
+
+\func factorialTailrec (n : Nat) : Nat => go n 1
+  \where {
+    \func go (n : Nat) (acc : Nat) : Nat \elim n
+      | 0 => acc
+      | suc n => go n (acc Nat.* suc n)
+  }
+
+\func factorialTail-correct : factorialTailrec = factorial => funExt (\lam n => go-correct n 1 *> NatSemiring.ide-left)
+  \where {
+    \func go-correct (n acc : Nat) : factorialTailrec.go n acc = acc Nat.* factorial n \elim n
+      | 0 => idp
+      | suc n => go-correct n (acc Nat.* suc n) *> NatSemiring.*-assoc
+  }
 -- 5. Определите функцию, которая проверяет правильность скобочной последовательности
 --    Докажите ее корректность
 
 \data Paren | Left | Right
 
-\func isBalanced (xs : List Paren) : Bool
-  => {?}
+\data BalancedParen
+  | empty
+  | wrap BalancedParen
+  | concat BalancedParen BalancedParen
 
-\data Balanced (xs : List Paren) \with
-  | nil => nil-balanced
-  | :: Left xs => cons-balanced {ys : List Paren} (Balanced ys) (xs = ys ++ Right :: nil)
-  | xs => append-balanced {ys zs : List Paren} (Balanced ys) (Balanced zs) (xs = ys ++ zs)
+\func toList (p : BalancedParen) : List Paren \elim p
+  | empty => nil
+  | wrap p => Left :: toList p ++ Right :: nil
+  | concat p q => toList p ++ toList q
 
-\func isBalanced-correct (xs : List Paren) : (isBalanced xs = true) <-> Balanced xs
-  => {?}
+\func balanceCheck (xs : List Paren) (n : Nat) : Bool \elim xs, n
+  | nil, 0 => true
+  | nil, suc n => false
+  | Left :: xs, n => balanceCheck xs (suc n)
+  | Right :: xs, 0 => false
+  | Right :: xs, suc n => balanceCheck xs n
+
+\func isBalanced (xs : List Paren) : Bool => balanceCheck xs 0
+
+\func balanced-correct (p : BalancedParen) : isBalanced (toList p) = true
+  => pmap (\lam xs => balanceCheck xs 0) (inv (++_nil {Paren} {toList p})) *> prefix p nil 0
+  \where {
+    \func prefix (p : BalancedParen) (xs : List Paren) (n : Nat) :
+      balanceCheck (toList p ++ xs) n = balanceCheck xs n \elim p
+      | empty => idp
+      | wrap p =>
+        pmap (\lam ys => balanceCheck ys (suc n)) (++-assoc {Paren} {toList p} {Right :: nil} {xs})
+          *> prefix p (Right :: xs) (suc n)
+      | concat p q =>
+        pmap (\lam ys => balanceCheck ys n) (++-assoc {Paren} {toList p} {toList q} {xs})
+          *> prefix p (toList q ++ xs) n *> prefix q xs n
+  }
+
+\func isBalanced-complete (xs : List Paren) (h : isBalanced xs = true) : \Sigma (p : BalancedParen) (toList p = xs)
+  => build xs 0 h
+  \where {
+    \func Parts (n : Nat) : \Type 0 \elim n
+      | 0 => BalancedParen
+      | suc n => \Sigma BalancedParen (Parts n)
+
+    \func partsToList (n : Nat) (ps : Parts n) : List Paren \elim n
+      | 0 => toList ps
+      | suc n => toList ps.1 ++ Right :: partsToList n ps.2
+
+    \func close (n : Nat) (ps : Parts (suc n)) (xs : List Paren) (e : partsToList (suc n) ps = xs) :
+      \Sigma (qs : Parts n) (partsToList n qs = Left :: xs) \elim n
+      | 0 => (concat (wrap ps.1) ps.2, pmap (Left ::) (++-assoc *> e))
+      | suc n => ((concat (wrap ps.1) ps.2.1, ps.2.2), pmap (Left ::) (++-assoc *> ++-assoc *> e))
+
+    \func build (xs : List Paren) (n : Nat) (h : balanceCheck xs n = true) :
+      \Sigma (ps : Parts n) (partsToList n ps = xs) \elim xs, n
+      | nil, 0 => (empty, idp)
+      | nil, suc n => absurd (true/=false (inv h))
+      | Left :: xs, n => \let r => build xs (suc n) h \in close n r.1 xs r.2
+      | Right :: xs, 0 => absurd (true/=false (inv h))
+      | Right :: xs, suc n => \let r => build xs n h \in ((empty, r.1), pmap (Right ::) r.2)
+  }
